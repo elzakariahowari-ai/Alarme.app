@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>المنبه</title>
+<style>
+:root{--bg:#fff;--fg:#000;--mute:#666;--line:#d4d4d4}
+body.dark{--bg:#000;--fg:#fff;--mute:#9a9a9a;--line:#2b2b2b}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;min-height:100vh;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+h1{font-size:20px}
+button,input{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--fg);border-radius:18px;padding:6px 14px}
+button{cursor:pointer}
+.card{border:1px solid var(--fg);border-radius:18px;padding:16px;margin:16px 0}
+#tm{display:block;width:100%;font-size:44px;text-align:center;border-radius:14px;padding:10px;direction:ltr}
+#lb{width:100%;margin:10px 0;border-radius:12px}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.days button{padding:4px 10px;font-size:13px}
+.days .on,#add{background:var(--fg);color:var(--bg)}
+#add{width:100%;padding:12px;font-weight:700}
+.m{color:var(--mute);font-size:13px}
+.row{display:flex;align-items:center;gap:10px;padding:14px 2px;border-bottom:1px solid var(--line)}
+.row .i{flex:1}.row b{font-size:30px;direction:ltr;display:inline-block}
+.tg{width:42px;height:24px;border-radius:12px;position:relative;padding:0}
+.tg::after{content:"";position:absolute;top:3px;right:4px;width:14px;height:14px;border-radius:50%;background:var(--fg)}
+.tg.off{border-color:var(--mute)}.tg.off::after{right:auto;left:4px;background:var(--mute)}
+#ring{position:fixed;inset:0;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;font-size:28px}
+#ring button{background:#fff;color:#000;font-size:22px;padding:14px 40px}
+</style>
+</head>
+<body>
+<header><h1>⏰ المنبه</h1><button id="mode">الوضع الليلي</button></header>
+<div class="card">
+ <input type="time" id="tm" value="07:00">
+ <input type="text" id="lb" placeholder="اسم المنبه (اختياري)">
+ <div class="days" id="dy"></div>
+ <p class="m" style="margin-bottom:10px">بدون اختيار أيام: يرن مرة واحدة فقط.</p>
+ <button id="add">إضافة منبه</button>
+</div>
+<div id="ls"></div>
+<p class="m" style="margin:14px 0;text-align:center"><button id="test">تجربة الصوت</button></p>
+<div id="ring"><div id="rt"></div><button id="stop">إيقاف</button></div>
+<script>
+var $=function(s){return document.querySelector(s)},L=localStorage;
+function J(k,d){try{var v=JSON.parse(L.getItem(k));return v==null?d:v}catch(e){return d}}
+function S(k,v){try{L.setItem(k,JSON.stringify(v))}catch(e){}}
+function p2(n){return(n<10?'0':'')+n}
+var DN=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+var A=J('al',{n:1,list:[]}),sel=[];
+var LN=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.LocalNotifications;
+$('#mode').onclick=function(){document.body.classList.toggle('dark');S('dk',document.body.classList.contains('dark'))};
+if(J('dk',false))document.body.classList.add('dark');
+// أيام التكرار (الأحد=1 ... السبت=7)
+$('#dy').innerHTML=DN.map(function(d,i){return'<button data-w="'+(i+1)+'">'+d+'</button>'}).join('');
+document.querySelectorAll('#dy button').forEach(function(b){b.onclick=function(){
+ var w=+b.dataset.w,i=sel.indexOf(w);if(i>-1)sel.splice(i,1);else sel.push(w);b.classList.toggle('on')}});
+// إضافة
+$('#add').onclick=function(){
+ var t=$('#tm').value;if(!t){alert('اختر الوقت');return}
+ var d=new Date();d.setHours(+t.slice(0,2),+t.slice(3,5),0,0);if(d<=new Date())d.setDate(d.getDate()+1);
+ A.list.push({id:A.n++,t:t,label:$('#lb').value.trim(),days:sel.slice().sort(),on:1,at:sel.length?null:d.getTime()});
+ save();$('#lb').value='';
+};
+function save(){S('al',A);render();schedule()}
+function sweep(){var ch=0;A.list.forEach(function(a){if(a.on&&!a.days.length&&a.at<Date.now()-60000){a.on=0;ch=1}});if(ch){S('al',A);render()}}
+function render(){
+ var l=A.list.slice().sort(function(a,b){return a.t<b.t?-1:1});
+ $('#ls').innerHTML=l.length?l.map(function(a){
+  var w=a.days.length?(a.days.length===7?'كل يوم':a.days.map(function(x){return DN[x-1]}).join('، ')):'مرة واحدة';
+  return'<div class="row"><div class="i"><b>'+a.t+'</b><div class="m">'+(a.label?a.label+' · ':'')+w+'</div></div><button class="tg'+(a.on?'':' off')+'" data-t="'+a.id+'" aria-label="تفعيل"></button><button data-x="'+a.id+'">حذف</button></div>'}).join(''):'<p class="m" style="text-align:center">لا توجد منبهات بعد.</p>';
+ document.querySelectorAll('[data-t]').forEach(function(b){b.onclick=function(){var a=A.list.filter(function(x){return x.id==b.dataset.t})[0];
+  if(!a.on&&!a.days.length){var d=new Date();d.setHours(+a.t.slice(0,2),+a.t.slice(3,5),0,0);if(d<=new Date())d.setDate(d.getDate()+1);a.at=d.getTime()}
+  a.on=a.on?0:1;save()}});
+ document.querySelectorAll('[data-x]').forEach(function(b){b.onclick=function(){A.list=A.list.filter(function(x){return x.id!=b.dataset.x});save()}});
+}
+// الجدولة الحقيقية (Capacitor): تعمل والتطبيق مغلق
+function schedule(){
+ if(!LN)return;var jobs=[];
+ A.list.forEach(function(a){
+  if(!a.on)return;var h=+a.t.slice(0,2),m=+a.t.slice(3,5);
+  var base={title:'⏰ '+(a.label||'المنبه'),body:a.t,channelId:'alarm',sound:'alarm.wav'};
+  if(a.days.length)a.days.forEach(function(w){jobs.push(Object.assign({id:a.id*10+w,schedule:{on:{weekday:w,hour:h,minute:m},allowWhileIdle:true}},base))});
+  else if(a.at>Date.now())jobs.push(Object.assign({id:a.id*10,schedule:{at:new Date(a.at),allowWhileIdle:true}},base));
+ });
+ LN.requestPermissions().then(function(){
+  return LN.createChannel({id:'alarm',name:'المنبه',importance:5,sound:'alarm.wav',vibration:true,visibility:1})}).then(function(){
+  if(!LN.checkExactNotificationSetting)return;
+  return LN.checkExactNotificationSetting().then(function(r){if(r&&r.exact_alarm!=='granted')return LN.changeExactNotificationSetting()}).catch(function(){})}).then(function(){
+  return LN.getPending()}).then(function(p){
+  return p.notifications.length?LN.cancel({notifications:p.notifications}):0}).then(function(){
+  return jobs.length?LN.schedule({notifications:jobs}):0}).catch(function(e){console.log(e)});
+}
+// صوت داخل الصفحة (للتجربة، أو احتياطي بدون Capacitor)
+var au=null;
+function snd(){if(!au){au=new Audio('alarm.wav');au.loop=true}return au}
+$('#test').onclick=function(){var a=snd();if(a.paused){a.currentTime=0;a.play().catch(function(){});this.textContent='إيقاف'}else{a.pause();this.textContent='تجربة الصوت'}};
+function ring(a){$('#rt').textContent='⏰ '+(a.label||a.t);$('#ring').style.display='flex';var s=snd();s.currentTime=0;s.play().catch(function(){})}
+$('#stop').onclick=function(){$('#ring').style.display='none';snd().pause();$('#test').textContent='تجربة الصوت'};
+setInterval(function(){
+ sweep();if(LN)return;
+ var n=new Date(),hm=p2(n.getHours())+':'+p2(n.getMinutes());
+ A.list.forEach(function(a){
+  var k='f'+a.id+n.toDateString()+hm;
+  if(a.on&&a.t===hm&&(a.days.length?a.days.indexOf(n.getDay()+1)>-1:Math.abs(n-a.at)<60000)&&!L.getItem(k)){L.setItem(k,1);ring(a)}});
+},1000);
+render();sweep();schedule();
+</script>
+</body>
+</html>
